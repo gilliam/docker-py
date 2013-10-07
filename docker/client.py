@@ -179,6 +179,11 @@ class Client(requests.Session):
             'stream': 1
         }
 
+    def resize_tty(self, container, width, height):
+        u = self._url('/containers/{0}/resize?w={1}&h={2}'.format(
+                container, width, height))
+        self.post(u)
+
     def build(self, path=None, tag=None, quiet=False, fileobj=None, nocache=False, rm=False):
         remote = context = headers = None
         if path is None and fileobj is None:
