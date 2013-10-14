@@ -27,6 +27,9 @@ import utils
 import websocket
 
 
+_NO_AUTH = object()
+
+
 class APIError(requests.exceptions.HTTPError):
     def __init__(self, message, response, explanation=None):
         super(APIError, self).__init__(message, response=response)
@@ -414,20 +417,27 @@ class Client(requests.Session):
         u = self._url("/images/create")
         return self._result(self.post(u, params=params, headers=headers))
 
-    def push(self, repository):
-        registry, repository = auth.resolve_repository_name(repository)
+    def push(self, repository, authcfg=None):
+        registry, _ = auth.resolve_repository_name(repository)
+        print registry, repository
         u = self._url("/images/{0}/push".format(repository))
         headers = {}
-        if getattr(self, '_cfg', None) is None:
-            self._cfg = auth.load_config()
-        authcfg = auth.resolve_authconfig(self._cfg, registry)
+        if authcfg is None:
+            if getattr(self, '_cfg', None) is None:
+                self._cfg = auth.load_config()
+            authcfg = auth.resolve_authconfig(self._cfg, registry)
         if utils.compare_version('1.5', self._version) >= 0:
             # do not fail if no atuhentication exists
             # for this specific registry as we can have an anon push
             if authcfg:
                 headers['X-Registry-Auth'] = auth.encode_header(authcfg)
-            return self._result(self._post_json(u, None, headers=headers))
-        return self._result(self._post_json(u, authcfg))
+            response = self._post_json(u, None, headers=headers,
+                                       stream=True)
+        else:
+            response = self._post_json(u, authcfg, stream=True)
+        response.raise_for_status()
+        for chunk in response.iter_lines():
+            yield chunk
 
     def remove_container(self, container, v=False):
         if isinstance(container, dict):
