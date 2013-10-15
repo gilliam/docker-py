@@ -27,9 +27,6 @@ import utils
 import websocket
 
 
-_NO_AUTH = object()
-
-
 class APIError(requests.exceptions.HTTPError):
     def __init__(self, message, response, explanation=None):
         super(APIError, self).__init__(message, response=response)
@@ -419,7 +416,6 @@ class Client(requests.Session):
 
     def push(self, repository, authcfg=None):
         registry, _ = auth.resolve_repository_name(repository)
-        print registry, repository
         u = self._url("/images/{0}/push".format(repository))
         headers = {}
         if authcfg is None:
