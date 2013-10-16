@@ -432,8 +432,7 @@ class Client(requests.Session):
         else:
             response = self._post_json(u, authcfg, stream=True)
         response.raise_for_status()
-        for chunk in response.iter_lines():
-            yield chunk
+        return response.iter_content(1)
 
     def remove_container(self, container, v=False):
         if isinstance(container, dict):
