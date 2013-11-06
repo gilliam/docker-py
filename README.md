@@ -1,6 +1,8 @@
 docker-py
 =========
 
+[![Build Status](https://travis-ci.org/dotcloud/docker-py.png)](https://travis-ci.org/dotcloud/docker-py)
+
 An API client for docker written in Python
 
 API
@@ -18,16 +20,22 @@ remote URL. `fileobj` must be a readable file-like object to a Dockerfile.
 * `c.commit(container, repository=None, tag=None, message=None, author=None, conf=None)`  
 Identical to the `docker commit` command.
 
-* `c.containers(quiet=False, all=False, trunc=True, latest=False, since=None, before=None, limit=-1)`  
+* `c.containers(quiet=False, all=False, trunc=True, latest=False, since=None,before=None, limit=-1)`  
 Identical to the `docker ps` command.
 
 * `c.copy(container, resource)`  
 Identical to the `docker cp` command.
 
-* `c.create_container(image, command, hostname=None, user=None, detach=False, stdin_open=False, tty=False, mem_limit=0, ports=None, environment=None, dns=None, volumes=None, volumes_from=None, privileged=False)`  
+* `c.create_container(image, command=None, hostname=None, user=None, detach=False,stdin_open=False, tty=False, mem_limit=0, ports=None, environment=None, dns=None,volumes=None, volumes_from=None, privileged=False)`  
 Creates a container that can then be `start`ed. Parameters are similar to those
 for the `docker run` command except it doesn't support the attach options
-(`-a`)
+(`-a`)  
+In order to create volumes that can be rebinded at start time, use the
+following syntax: `volumes={"/srv": "" }`.   The `ports` parameter is a
+dictionary whose key is the port to expose and the value is an empty
+dictionary: `ports={"2181/tcp": {}}`.  Note, this will simply expose the ports in
+the container, but does not make them available on the host.  See `start`
+below.
 
 * `c.diff(container)`  
 Identical to the `docker diff` command.
@@ -91,13 +99,19 @@ Restart a container. Similar to the `docker restart` command.
 * `c.search(term)`  
 Identical to the `docker search` command.
 
-* `c.start(container, binds=None, lxc_conf=None)`  
+* `c.start(container, binds=None, port_bindings=None, lxc_conf=None)`
 Similar to the `docker start` command, but doesn't support attach options.
 Use `docker logs` to recover `stdout`/`stderr`  
 `binds` Allows to bind a directory in the host to the container.
  Similar to the `docker run` command with option `-v="/host:/mnt"`.
-Requires the container to be created with the volumes argument:
-`c.create_container(..., volumes={'/mnt': {}})`  
+Note that you must declare "blank" volumes at container creation to use binds.  
+Example of binds mapping from host to container: `{'/mnt/srv/': '/srv'}`  
+`port_bindings` Exposes container ports to the host.  This is a
+dictionary whose key is the container's port and the value is a `[{'HostIp': ''
+'HostPort': ''}]` list.  Leaving `HostIp` blank will expose the port on
+all host interfaces.  By leaving the `HostPort` blank, Docker will
+automatically assign a port.  For example: `port_bindings={"2181/tcp": [{'HostIp': ''
+'HostPort': ''}]}`.
 `lxc_conf` allows to pass LXC configuration options in dict form.
 
 * `c.stop(container, timeout=10)`  

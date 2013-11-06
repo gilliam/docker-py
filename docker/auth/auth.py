@@ -18,9 +18,10 @@ import os
 
 import six
 
-import utils
+import docker.utils as utils
 
 INDEX_URL = 'https://index.docker.io/v1/'
+
 
 def swap_protocol(url):
     if url.startswith('http://'):
@@ -42,7 +43,7 @@ def expand_registry_url(hostname):
 
 def resolve_repository_name(repo_name):
     if '://' in repo_name:
-        raise ValueError('Repository name can not contain a'
+        raise ValueError('Repository name cannot contain a '
                          'scheme ({0})'.format(repo_name))
     parts = repo_name.split('/', 1)
     if not '.' in parts[0] and not ':' in parts[0] and parts[0] != 'localhost':
@@ -84,8 +85,10 @@ def resolve_authconfig(authconfig, registry):
 
 
 def decode_auth(auth):
+    if isinstance(auth, six.string_types):
+        auth = auth.encode('ascii')
     s = base64.b64decode(auth)
-    login, pwd = s.split(':')
+    login, pwd = s.split(b':')
     return login, pwd
 
 

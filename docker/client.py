@@ -20,9 +20,9 @@ import requests
 import requests.exceptions
 import six
 
-import auth
-import unixconn
-import utils
+import docker.auth as auth
+import docker.unixconn as unixconn
+import docker.utils as utils
 
 import websocket
 
@@ -33,7 +33,7 @@ class APIError(requests.exceptions.HTTPError):
 
         self.explanation = explanation
 
-        if self.explanation is None and response.content and len(response.content) > 0:
+        if self.explanation is None and response.content:
             self.explanation = response.content.strip()
 
     def __str__(self):
@@ -62,6 +62,8 @@ class APIError(requests.exceptions.HTTPError):
 class Client(requests.Session):
     def __init__(self, base_url="unix://var/run/docker.sock", version="1.4"):
         super(Client, self).__init__()
+        if base_url.startswith('unix:///'):
+            base_url = base_url.replace('unix:/', 'unix:')
         self.mount('unix://', unixconn.UnixAdapter(base_url))
         self.base_url = base_url
         self._version = version
@@ -77,7 +79,7 @@ class Client(requests.Session):
         """Raises stored :class:`APIError`, if one occurred."""
         try:
             response.raise_for_status()
-        except requests.exceptions.HTTPError, e:
+        except requests.exceptions.HTTPError as e:
             raise APIError(e, response=response, explanation=explanation)
 
     def _result(self, response, json=False):
@@ -88,13 +90,15 @@ class Client(requests.Session):
         return response.text
 
     def _container_config(self, image, command, hostname=None, user=None,
-        detach=False, stdin_open=False, tty=False, mem_limit=0, ports=None,
-        environment=None, dns=None, volumes=None, volumes_from=None,
-        privileged=False):
+                          detach=False, stdin_open=False, tty=False,
+                          mem_limit=0, ports=None, environment=None, dns=None,
+                          volumes=None, volumes_from=None, privileged=False):
         if isinstance(command, six.string_types):
             command = shlex.split(str(command))
         if isinstance(environment, dict):
-            environment = ['{0}={1}'.format(k, v) for k, v in environment.items()]
+            environment = [
+                '{0}={1}'.format(k, v) for k, v in environment.items()
+            ]
 
         attach_stdin = False
         attach_stdout = False
@@ -109,7 +113,7 @@ class Client(requests.Session):
 
         return {
             'Hostname':     hostname,
-            'PortSpecs':    ports,
+            'ExposedPorts': ports,
             'User':         user,
             'Tty':          tty,
             'OpenStdin':    stdin_open,
@@ -191,18 +195,23 @@ class Client(requests.Session):
 
         if fileobj is not None:
             context = utils.mkbuildcontext(fileobj)
-        elif (path.startswith('http://') or path.startswith('https://') or
-        path.startswith('git://') or path.startswith('github.com/')):
+        elif path.startswith(('http://', 'https://', 'git://', 'github.com/')):
             remote = path
         else:
             context = utils.tar(path)
 
         u = self._url('/build')
-        params = { 't': tag, 'remote': remote, 'q': quiet, 'nocache': nocache, 'rm': rm }
+        params = {
+            't': tag,
+            'remote': remote,
+            'q': quiet,
+            'nocache': nocache,
+            'rm': rm
+        }
         if context is not None:
-            headers = { 'Content-Type': 'application/tar' }
+            headers = {'Content-Type': 'application/tar'}
         res = self._result(self.post(u, context, params=params,
-            headers=headers, stream=True))
+                           headers=headers, stream=True))
         if context is not None:
             context.close()
         srch = r'Successfully built ([0-9a-f]+)'
@@ -212,7 +221,7 @@ class Client(requests.Session):
         return match.group(1), res
 
     def commit(self, container, repository=None, tag=None, message=None,
-        author=None, conf=None):
+               author=None, conf=None):
         params = {
             'container': container,
             'repo': repository,
@@ -224,7 +233,7 @@ class Client(requests.Session):
         return self._result(self._post_json(u, conf, params=params), json=True)
 
     def containers(self, quiet=False, all=False, trunc=True, latest=False,
-        since=None, before=None, limit=-1):
+                   since=None, before=None, limit=-1):
         params = {
             'limit': 1 if latest else limit,
             'all': 1 if all else 0,
@@ -235,44 +244,45 @@ class Client(requests.Session):
         u = self._url("/containers/ps")
         res = self._result(self.get(u, params=params), True)
         if quiet:
-            return [{ 'Id': x['Id'] } for x in res]
+            return [{'Id': x['Id']} for x in res]
         return res
 
     def copy(self, container, resource):
-        res = self._post_json(self._url("/containers/{0}/copy".format(container)),
+        res = self._post_json(
+            self._url("/containers/{0}/copy".format(container)),
             {"Resource": resource},
-            stream=True)
+            stream=True
+        )
         self._raise_for_status(res)
         return res.raw
 
-    def create_container(self, image, command, hostname=None, user=None,
-        detach=False, stdin_open=False, tty=False, mem_limit=0, ports=None,
-        environment=None, dns=None, volumes=None, volumes_from=None,
-        privileged=False):
-        config = self._container_config(image, command, hostname, user,
-            detach, stdin_open, tty, mem_limit, ports, environment, dns,
-            volumes, volumes_from, privileged)
+    def create_container(self, image, command=None, hostname=None, user=None,
+                         detach=False, stdin_open=False, tty=False,
+                         mem_limit=0, ports=None, environment=None, dns=None,
+                         volumes=None, volumes_from=None, privileged=False):
+
+        config = self._container_config(
+            image, command, hostname, user, detach, stdin_open, tty, mem_limit,
+            ports, environment, dns, volumes, volumes_from, privileged
+        )
         return self.create_container_from_config(config)
 
     def create_container_from_config(self, config):
         u = self._url("/containers/create")
         res = self._post_json(u, config)
-        if res.status_code == 404:
-            self._raise_for_status(res, explanation="{0} is an unrecognized image. Please pull the "
-                "image first.".format(config['Image']))
         return self._result(res, True)
 
     def diff(self, container):
         if isinstance(container, dict):
             container = container.get('Id')
         return self._result(self.get(self._url("/containers/{0}/changes".
-            format(container))), True)
+                            format(container))), True)
 
     def export(self, container):
         if isinstance(container, dict):
             container = container.get('Id')
         res = self.get(self._url("/containers/{0}/export".format(container)),
-            stream=True)
+                       stream=True)
         self._raise_for_status(res)
         return res.raw
 
@@ -290,15 +300,12 @@ class Client(requests.Session):
             'all': 1 if all else 0,
         }
         res = self._result(self.get(self._url("/images/json"), params=params),
-            True)
+                           True)
         if quiet:
             return [x['Id'] for x in res]
         return res
 
     def import_image(self, src, data=None, repository=None, tag=None):
-        '''
-        To import from a local tarball, use the absolute path to the file
-        '''
         u = self._url("/images/create")
         params = {
             'repo': repository,
@@ -334,12 +341,14 @@ class Client(requests.Session):
     def inspect_container(self, container):
         if isinstance(container, dict):
             container = container.get('Id')
-        return self._result(self.get(self._url("/containers/{0}/json".
-            format(container))), True)
+        return self._result(self.get(
+            self._url("/containers/{0}/json".format(container))
+        ), True)
 
     def inspect_image(self, image_id):
-        return self._result(self.get(self._url("/images/{0}/json".
-            format(image_id))), True)
+        return self._result(self.get(
+            self._url("/images/{0}/json".format(image_id))
+        ), True)
 
     def kill(self, container):
         if isinstance(container, dict):
@@ -403,6 +412,7 @@ class Client(requests.Session):
             'fromImage': repository
         }
         headers = {}
+
         if utils.compare_version('1.5', self._version) >= 0:
             if getattr(self, '_cfg', None) is None:
                 self._cfg = auth.load_config()
@@ -437,7 +447,7 @@ class Client(requests.Session):
     def remove_container(self, container, v=False):
         if isinstance(container, dict):
             container = container.get('Id')
-        params = { 'v': v }
+        params = {'v': v}
         res = self.delete(self._url("/containers/" + container), params=params)
         self._raise_for_status(res)
 
@@ -448,24 +458,29 @@ class Client(requests.Session):
     def restart(self, container, timeout=10):
         if isinstance(container, dict):
             container = container.get('Id')
-        params = { 't': timeout }
+        params = {'t': timeout}
         url = self._url("/containers/{0}/restart".format(container))
         res = self.post(url, None, params=params)
         self._raise_for_status(res)
 
     def search(self, term):
         return self._result(self.get(self._url("/images/search"),
-            params={'term': term}), True)
+                            params={'term': term}), True)
 
-    def start(self, container, binds=None, lxc_conf=None):
+    def start(self, container, binds=None, port_bindings=None, lxc_conf=None):
         if isinstance(container, dict):
             container = container.get('Id')
         start_config = {
             'LxcConf': lxc_conf
         }
         if binds:
-            bind_pairs = ['{0}:{1}'.format(host, dest) for host, dest in binds.items()]
+            bind_pairs = [
+                '{0}:{1}'.format(host, dest) for host, dest in binds.items()
+            ]
             start_config['Binds'] = bind_pairs
+
+        if port_bindings:
+            start_config['PortBindings'] = port_bindings
 
         url = self._url("/containers/{0}/start".format(container))
         res = self._post_json(url, start_config)
@@ -474,7 +489,7 @@ class Client(requests.Session):
     def stop(self, container, timeout=10):
         if isinstance(container, dict):
             container = container.get('Id')
-        params = { 't': timeout }
+        params = {'t': timeout}
         url = self._url("/containers/{0}/stop".format(container))
         res = self.post(url, None, params=params)
         self._raise_for_status(res)
